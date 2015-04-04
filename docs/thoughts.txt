@@ -1,0 +1,72 @@
+As Javascript is async, it requires a different way of putting the applications together.
+
+Attributes are typically lazily loaded which require network communication.
+
+In JS, this is all async and we can't make the code wait unless we use an undesireable wait poll.
+
+Can there be a method of allowing what looks like syncronous code but making it async?
+
+Probably not.
+
+So let's use this construction:
+
+pooler = walky.get_object('pooler')
+pooler.get('product.product').$get(['browse','search','unlink','write'],function(model){
+    model.search([('active','=','true')]).$then(function(ids){
+        ...
+    })
+})
+
+Is it possible to do something like
+
+walky.get_object('pooler')
+    .$get(['get']) // get the fields
+    .$then(function(pooler){
+        po
+    })
+
+pooler.get('product.product')
+      .$get(['browse','search','unlink','write'])
+
+    model.search([('active','=','true')]).$then(function(ids){
+        ...
+    })
+
+pooler = walky.get_obj('pooler')
+pooler.$exec('get','product.product',new Fields('browse','search','unlink','write'))
+      .$then(function(obj){
+          return obj.$exec('search',[('active','=',True)]).$then(function(ids){})
+      })
+      .$then(function(){
+      })
+;
+
+For now, probably best to do some sort of RPC interface.
+
+walky.connect('ws:location')
+walky.on_connect = function(walky) {
+    sys = walky.object_get('!')
+    sys.databases().then(
+        function(resolve,reject,result) {
+        },
+        function(error) {
+        }
+    )
+};
+
+Let's use RSVP promises.
+
+So the design of the basic interface should be like what?
+
+walky.open('ws:location')
+walky.exec(ObjectID:String,Method:String,args:List,kwargs:Object,success:Function,error:Function)
+walky.close()
+
+Shall I go further with RSVP?
+
+walky.exec(ObjectID:String,Method:String,args:List,kwargs:Object).then(success,reject)
+
+
+
+
+

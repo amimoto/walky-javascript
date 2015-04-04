@@ -1,0 +1,22 @@
+{
+  "name": "Walky",
+  "version": "0.0.1",
+  "authors": [
+    "Aki Mimoto <aki-walky@bako.ca>"
+  ],
+  "description": "Walky Distributed Object Library",
+  "main": "walky.js",
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "jquery": "~2.1.3",
+    "rsvp": "~3.0.18",
+    "sjcl": "~1.0.2"
+  }
+}

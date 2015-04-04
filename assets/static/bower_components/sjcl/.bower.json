@@ -1,0 +1,18 @@
+{
+  "name": "sjcl",
+  "version": "1.0.2",
+  "main": [
+    "./sjcl.js"
+  ],
+  "homepage": "https://github.com/bitwiseshiftleft/sjcl",
+  "_release": "1.0.2",
+  "_resolution": {
+    "type": "version",
+    "tag": "1.0.2",
+    "commit": "0f8fe271941fdd65e4a22ac6b4b29384cfb8fc33"
+  },
+  "_source": "git://github.com/bitwiseshiftleft/sjcl.git",
+  "_target": "~1.0.2",
+  "_originalSource": "sjcl",
+  "_direct": true
+}
