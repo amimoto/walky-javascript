@@ -19,9 +19,7 @@ var PAYLOAD = 1;
 var PAYLOAD_ERROR = -1;
 
 var PAYLOAD_METHOD_EXECUTE = 0;
-var PAYLOAD_PRIMITIVE = 1;
-var PAYLOAD_CONTAINS_DISTRIBUTED = 2;
-var PAYLOAD_DISTRIBUTED_OBJECT = 3;
+var PAYLOAD_DATA = 1;
 var PAYLOAD_OBJECT_DELETED = 8;
 var PAYLOAD_ATTRIBUTE_METHOD = 9;
 
@@ -43,6 +41,7 @@ var TARGET_GROUP = 0;
 var SOURCE_CLASS = 1;
 var MAPPED_CLASS = 2;
 
+var DEBUG = true;
 
 /***************************************************
  OBJECTS
@@ -62,12 +61,13 @@ var WalkyObjectStub = function ( walkyConnection, regObjID ) {
     };
 };
 
-var WalkyNormalized = function ( data ) {
+var WalkyEnveloped = function ( data ) {
     this.data = data;
 };
 
 var WalkyInterrogation = function ( walkyConnection ) {
     this.walkyConnection = walkyConnection;
+
     this['?'] = function ( regObjID, attribute ) {
     // --------------------------------------------------
         var that = this;
@@ -77,10 +77,18 @@ var WalkyInterrogation = function ( walkyConnection ) {
         if ( !attribute in obj ) return undefined;
         var attr = obj[attribute];
         // FIXME: This is dirty
-        return new WalkyNormalized([
+        return new WalkyEnveloped([
                         PAYLOAD_ATTRIBUTE_METHOD,
-                        [1,[regObjID,attribute]]
+                        [regObjID,attribute]
                     ]);
+    };
+
+    this['del'] = function ( regObjID ) {
+        var that = this;
+        var registry = that.walkyConnection.engine.registry;
+        registry.delObject(regObjID);
+        console.log("Deleted object:",regObjID);
+        return true;
     };
 };
 
@@ -118,8 +126,16 @@ var WalkyRegistry = function () {
     // --------------------------------------------------
         var that = this;
         if ( regObjID in that.objRegistry ) 
-            return that.objRegistry[regObjID]
-        return undefined;
+            return that.objRegistry[regObjID];
+        if (DEBUG) console.log("Could not find object:", regObjID);
+        return;
+    };
+
+    this.delObject = function ( regObjID ) {
+    // --------------------------------------------------
+        var that = this;
+        if ( regObjID in that.objRegistry ) 
+            delete that.objRegistry[regObjID];
     };
 
 };
@@ -157,21 +173,48 @@ var WalkySerializer = function () {
         return false;
     };
 
-    this.normalizeData = function ( denormalizedData, registry ) {
+    this.envelopeWrap = function ( denormalizedData, registry, messageID ) {
     // --------------------------------------------------
         var that = this;
 
+        if ( denormalizedData && denormalizedData.constructor == WalkyEnveloped ) {
+            var envelopedData = denormalizedData.data;
+            envelopedData.push(messageID);
+            return envelopedData;
+        }
+
+        var normalizedData = that.normalizeData( denormalizedData, registry );
+        var envelopedData = [ PAYLOAD_DATA, normalizedData, messageID ];
+        return envelopedData;
+    };
+
+    this.normalizeData = function ( denormalizedData, registry ) {
+    // --------------------------------------------------
+        var that = this;
         if (typeof(denormalizedData) == "number") {
-            return [PAYLOAD_PRIMITIVE,denormalizedData];
+            return denormalizedData;
+        }
+        else if (typeof(denormalizedData) == "boolean") {
+            return denormalizedData;
         }
         else if (typeof(denormalizedData) == "string") {
-            return [PAYLOAD_PRIMITIVE,denormalizedData];
+            var firstChar = denormalizedData.charAt(0);
+            if (firstChar == '!' ) {
+                return '!'+denormalizedData;
+            }
+            return denormalizedData;
         }
         else if (typeof(denormalizedData) == "function") {
             // FIXME: Allow direct calls of functions?
+            console.log("?????????????????????????????",denormalizedData);
             return [PAYLOAD_ATTRIBUTE_METHOD,denormalizedData];
         }
-        else if ( denormalizedData.constructor === WalkyNormalized ) {
+
+        else if (typeof(denormalizedData) == "undefined") {
+            return denormalizedData;
+        }
+
+        else if ( denormalizedData.constructor === WalkyEnveloped ) {
             return denormalizedData.data;
         }
         else if ( 
@@ -179,71 +222,35 @@ var WalkySerializer = function () {
                 && !that.isComplexObject(denormalizedData)
         ) {
             var data = [];
-            var allPrimitive = true;
             for ( var i=0; i<denormalizedData.length; i++ ) {
                 var dv = denormalizedData[i];
                 var v = that.normalizeData(dv,registry);
-                if ( v[TYPE] != PAYLOAD_PRIMITIVE ) {
-                    allPrimitive = false;
-                }
                 data.push(v);
             };
-
-            // Small local optimization
-            if ( allPrimitive ) {
-                var newData = [];
-                for ( var i=0; i<data.length; i++ ) {
-                    newData.push(data[i][PAYLOAD])
-                };
-
-                return [PAYLOAD_PRIMITIVE,newData];
-            };
-
-            // Requires additional processing
-            return [PAYLOAD_DISTRIBUTED_OBJECT,data];
+            return data;
         }
         else if ( 
             denormalizedData.constructor === Object 
                 && !that.isComplexObject(denormalizedData)
         ) {
             var data = {};
-            var allPrimitive = true;
             for ( var k in denormalizedData ) {
                 var dv = denormalizedData[k];
                 var v = that.normalizeData(dv,registry);
-                if ( v[TYPE] != PAYLOAD_PRIMITIVE ) {
-                    allPrimitive = false;
-                }
                 data[k] = v;
             };
-
-            // Small local optimization
-            if ( allPrimitive ) {
-                var newData = {};
-                for ( var k in data ) {
-                    newData[k] = data[k][PAYLOAD];
-                };
-                return [PAYLOAD_PRIMITIVE,newData];
-            };
-
-            // Requires additional processing
-            return [PAYLOAD_DISTRIBUTED_OBJECT,data];
-
+            return data;
         }
 
         // Oops, this is going to be a complex object.
         else {
             var regObjID = registry.putObject(denormalizedData);
-            return [PAYLOAD_DISTRIBUTED_OBJECT,regObjID];
+            return "!O"+regObjID;
         }
-        
     };
 
-    this.denormalizeData = function ( normalizedData, walkyConnection ) {
+    this.envelopeUnwrap = function ( normalizedData, walkyConnection, registry ) {
     // --------------------------------------------------
-    // FIXME: This doesn't mirror the python code yet. (It returns the
-    //        payload type when it doesn't need to)
-    //
         var that = this;
         var respType = normalizedData[TYPE]
         var respPayload = normalizedData[PAYLOAD]
@@ -251,33 +258,8 @@ var WalkySerializer = function () {
 
         switch (respType) {
 
-            case PAYLOAD_PRIMITIVE:
-                denormalizedData = respPayload;
-                break;
-
-            case PAYLOAD_DISTRIBUTED_OBJECT:
-                denormalizedData = new WalkyObjectStub(walkyConnection,respPayload);
-                break
-
-            case PAYLOAD_CONTAINS_DISTRIBUTED:
-                // FIXME Need to handle this still
-                if ( respPayload.constructor === Array ) {
-                    denormalizedData = [];
-                    for ( var i=0; i<respPayload.length; i++ ) {
-                        var p = respPayload[i];
-                        var v = that.denormalizeData(p,walkyConnection);
-                        denormalizedData.push(v[PAYLOAD]);
-                    }
-                }
-                else if ( respPayload.constructor === Object ) {
-                    denormalizedData = {};
-                    for ( var k in respPayload ) {
-                        var p = respPayload[k];
-                        var v = that.denormalizeData(p,walkyConnection);
-                        denormalizedData[k] = v[PAYLOAD];
-                    }
-                }
-                break;
+            case PAYLOAD_DATA:
+                return that.denormalizeData(normalizedData, registry)
 
             case PAYLOAD_EVENT:
                 // FIXME Need to handle this still
@@ -299,20 +281,113 @@ var WalkySerializer = function () {
                 // FIXME Need to handle this properly
                 var registry = walkyConnection.engine.registry;
                 var obj = registry.getObject(respPayload);
-                denormalizedData = new WalkyExecRequest(
+
+                if ( !obj ) {
+                    return new WalkyEnveloped([
+                                    PAYLOAD_ERROR,
+                                    "Unknown Object"
+                                ]);
+                }
+
+                // Note that we need to double check that the args
+                // actually exists. We don't want to accidentally use
+                // the message ID as the argument
+                // [ type, object, function, args, kwargs, message ].length == 6
+                // [ type, object, function, message ].length == 4
+                // So length needs to be greater than 4
+                var args = normalizedData.length > 4
+                                ? normalizedData[REQUEST_ARGS]
+                                : [];
+                if (DEBUG) console.log("USING ARGS:", args, normalizedData.length);
+                var result = new WalkyExecRequest(
                                         obj,
                                         normalizedData[REQUEST_METHOD],
                                         that.denormalizeData(
-                                            normalizedData[REQUEST_ARGS]
-                                        )[PAYLOAD]
+                                            args,
+                                            registry
+                                        )
                                         // FIXME: kwargs have no meaning in JS
                                         // normalizedData[REQUEST_KWARGS],
                                     );
-                break;
-
+                return result;
         };
 
-        return [ respType, denormalizedData ];
+
+    };
+
+    this.denormalizeData = function ( normalizedData, walkyConnection, registry ) {
+    // --------------------------------------------------
+    // FIXME: This doesn't mirror the python code yet. (It returns the
+    //        payload type when it doesn't need to)
+    //
+        var that = this;
+        var denormalizedData;
+
+        if (typeof(normalizedData) == "number") {
+            return normalizedData;
+        }
+        else if (typeof(normalizedData) == "boolean") {
+            return normalizedData;
+        }
+        else if (typeof(normalizedData) == "string") {
+            if ( !normalizedData.length ) 
+                return normalizedData;
+            var firstChar = normalizedData.charAt(0);
+            if ( firstChar != '!' )
+                return normalizedData;
+            if ( normalizedData.length == 1 )
+                return normalizedData; // FIXME: Should throw an error
+            var secondChar = normalizedData.charAt(1);
+            switch (secondChar) {
+                case '!':
+                    return normalizedData.substring(1);
+
+                case 'd':
+                    return new Date(normalizedData.substring(2));
+
+                case 'D':
+                    return new Date(normalizedData.substring(2));
+
+                case 'O':
+                    // FIXME: handle metadata information
+                    return new WalkyObjectStub(
+                                          walkyConnection,
+                                          normalizedData.substring(2)
+                                      );
+
+                default:
+                    // FIXME: Should throw an error
+            };
+            return;
+        }
+        else if (typeof(normalizedData) == "function") {
+            // FIXME: Allow direct calls of functions?
+            if (DEBUG) console.log("BUSTED FOR FUNCTIONS SO FAR");
+        }
+        else if ( 
+            normalizedData.constructor === Array 
+                && !that.isComplexObject(normalizedData)
+        ) {
+            var data = [];
+            for ( var i=0; i<normalizedData.length; i++ ) {
+                var dv = normalizedData[i];
+                var v = that.denormalizeData(dv,registry);
+                data.push(v);
+            };
+            return data;
+        }
+        else if ( 
+            normalizedData.constructor === Object 
+                && !that.isComplexObject(normalizedData)
+        ) {
+            var data = {};
+            for ( var k in normalizedData ) {
+                var dv = normalizedData[k];
+                var v = that.denormalizeData(dv,registry);
+                data[k] = v;
+            };
+            return data;
+        };
     };
 };
 
@@ -336,7 +411,7 @@ var WalkyConnection = function () {
         var promise = new RSVP.Promise(function(resolve,reject){
             that.ws = new WebSocket( wsUri );
             that.ws.onmessage = function (ev) { 
-                console.log("<---------",ev.data);
+                if (DEBUG) console.log("<---------",ev.data);
                 that.onmessage(ev);
             };
             that.ws.onopen = function (ev) { 
@@ -392,11 +467,10 @@ var WalkyConnection = function () {
                                   argsList,
                                   keywordDict,
                                   messageID
-                              ])+"\r\n";
+                              ]);
 
             // Then send it off
-            console.log("TO:",wsLine);
-            that.ws.send(wsLine);
+            that.sendLine(wsLine);
         });
         return promise;
     };
@@ -405,18 +479,24 @@ var WalkyConnection = function () {
     // --------------------------------------------------
         var that = this;
         var result = execRequest.exec();
-        var normalizedResult = that.engine.serializer.normalizeData(
-                                              result,
-                                              that.engine.registry)
-
-        normalizedResult.push(respMessageID);
+        var envelopedData = that.engine.serializer.envelopeWrap(
+                                                        result,
+                                                        that.engine.registry,
+                                                        respMessageID
+                                                    );
 
         // Encode into transport stream
-        var wsLine = JSON.stringify(normalizedResult)+"\r\n";
+        var wsLine = JSON.stringify(envelopedData);
 
         // Then send it off
-        console.log("TO:",wsLine);
-        that.ws.send(wsLine);
+        that.sendLine(wsLine);
+    };
+
+    this.sendLine = function ( wsLine ) {
+    // --------------------------------------------------
+        var that = this;
+        if (DEBUG) console.log("-->",wsLine);
+        that.ws.send(wsLine+"\r\n");
     };
 
     this.close = function () {
@@ -431,24 +511,25 @@ var WalkyConnection = function () {
     //
     };
 
-    this.onmessage = function (ev) {
+    this.receiveLine = function (line) {
     // --------------------------------------------------
-    // FIXME: needs exception support for failed parses
         var that = this;
-        var normalizedData = JSON.parse(ev.data);
-        var respMessageID = normalizedData[normalizedData.length-1];
+        var envelopedData = JSON.parse(line);
+        var respMessageID = envelopedData[envelopedData.length-1];
+        var respType = envelopedData[TYPE];
 
         // Parse incoming data
         var serializer = that.engine.serializer;
-        var denormalizedData = serializer.denormalizeData(normalizedData,that);
-
-        var respType = denormalizedData[TYPE];
-        var payload = denormalizedData[PAYLOAD];
+        var denormalizedData = serializer.envelopeUnwrap(
+                                              envelopedData,
+                                              that,
+                                              that.engine.registry
+                                          );
 
         // We got a request to execute an object method,
         // let's do so.
         if ( respType == PAYLOAD_METHOD_EXECUTE ) {
-            that.execRequest(payload,respMessageID);
+            that.execRequest(denormalizedData,respMessageID);
         }
 
         // If something's waiting on it, resolve it.
@@ -456,8 +537,20 @@ var WalkyConnection = function () {
             var waiting = that.messageWaiting[respMessageID];
             delete that.messageWaiting[respMessageID];
             // FIXME: The following is _ugly_
-            waiting[0](payload);
+            waiting[0](denormalizedData);
         }
+
+    };
+
+    this.onmessage = function (ev) {
+    // --------------------------------------------------
+    // FIXME: needs exception support for failed parses
+        var that = this;
+        var lines = ev.data.split('\n');
+        for ( var i = 0; i < lines.length; i++ ) {
+            var line = lines[i];
+            if ( line ) that.receiveLine(lines[i]);
+        };
     };
 
 };

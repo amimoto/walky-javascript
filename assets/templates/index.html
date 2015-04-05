@@ -9,9 +9,7 @@
 
         var WalkyDoc = function() {
             this.jquery = function(selector) {
-                console.log("SELECTOR:",selector);
                 var jqObj = $(selector);
-                console.log("ORIG: ",typeof(jqObj));
                 return jqObj;
             };
         };

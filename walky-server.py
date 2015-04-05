@@ -59,7 +59,8 @@ class TestDocManip(object):
         conn = self._conn()
 
         doc = conn.object_get_remote('$')
-        doc.jquery('#content').html(
+        content = doc.jquery('#content')
+        content.html(
           """
             <h1>THIS SHOULD HAVE SOME DATA</h1>
             So this is where it gets a little ridiculous.
@@ -68,16 +69,18 @@ class TestDocManip(object):
         )
 
         def update_time():
-            fn = doc.jquery('#data').html
+            data = doc.jquery('#data')
+            fn = data.html
+            cn = doc.jquery('#content')
             ticks = 0
             while 1:
                 ts = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 print "tick", ts
                 fn(ts)
-                time.sleep(1)
+                time.sleep(0.2)
                 ticks += 1
                 if ticks % 2 == 0:
-                  doc.jquery('#content').slideToggle()
+                  cn.slideToggle('fast')
 
         self._thread = threading.Thread(target=update_time)
         self._thread.daemon = True
