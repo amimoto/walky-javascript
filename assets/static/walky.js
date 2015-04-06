@@ -259,7 +259,7 @@ var WalkySerializer = function () {
         switch (respType) {
 
             case PAYLOAD_DATA:
-                return that.denormalizeData(normalizedData, registry)
+                return that.denormalizeData(respPayload, walkyConnection, registry)
 
             case PAYLOAD_EVENT:
                 // FIXME Need to handle this still
@@ -304,6 +304,7 @@ var WalkySerializer = function () {
                                         normalizedData[REQUEST_METHOD],
                                         that.denormalizeData(
                                             args,
+                                            walkyConnection,
                                             registry
                                         )
                                         // FIXME: kwargs have no meaning in JS
@@ -371,7 +372,7 @@ var WalkySerializer = function () {
             var data = [];
             for ( var i=0; i<normalizedData.length; i++ ) {
                 var dv = normalizedData[i];
-                var v = that.denormalizeData(dv,registry);
+                var v = that.denormalizeData(dv,walkyConnection,registry);
                 data.push(v);
             };
             return data;
@@ -383,7 +384,7 @@ var WalkySerializer = function () {
             var data = {};
             for ( var k in normalizedData ) {
                 var dv = normalizedData[k];
-                var v = that.denormalizeData(dv,registry);
+                var v = that.denormalizeData(dv,walkyConnection,registry);
                 data[k] = v;
             };
             return data;
